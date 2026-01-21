@@ -37,6 +37,8 @@ def get_token_throughput_latencies(
     max_num_completed_requests: int = 500,
     test_timeout_s=90,
     llm_api="openai",
+    disable_prefix_caching: bool = False,
+    unique_prompts: bool = False,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Get the token throughput and latencies for the given model.
 
@@ -52,13 +54,17 @@ def get_token_throughput_latencies(
             this to increase the amount of load and vice versa.
         test_timeout_s: The amount of time to run the test for before reporting results.
         llm_api: The name of the llm api to use. Either "openai" or "litellm".
+        disable_prefix_caching: If True, add unique prefix to each prompt to prevent VLLM KV caching.
+        unique_prompts: If True, use unique random seed per prompt for maximum uniqueness.
 
     Returns:
         A summary of the performance metrics collected across all completed requests
         (e.g. throughput, latencies, etc.)
         The individual metrics for each request.
     """
-    random.seed(11111)
+    # Only use fixed seed if unique_prompts is False (default behavior)
+    if not unique_prompts:
+        random.seed(11111)
 
     tokenizer = LlamaTokenizerFast.from_pretrained(
         "hf-internal-testing/llama-tokenizer"
@@ -80,11 +86,16 @@ def get_token_throughput_latencies(
         ))
         num_output_tokens_list.append(num_output_tokens)
 
+        # Generate unique request_id for cache prevention
+        request_id = f"req_{i}_{int(time.time() * 1000)}" if disable_prefix_caching else None
+
         prompts.append(randomly_sample_sonnet_lines_prompt(
             prompt_tokens_mean=mean_input_tokens,
             prompt_tokens_stddev=stddev_input_tokens,
             expect_output_tokens=num_output_tokens,
-            tokenizer=tokenizer
+            tokenizer=tokenizer,
+            disable_prefix_caching=disable_prefix_caching,
+            request_id=request_id,
         ))
     start_time = time.monotonic()
     pbar = tqdm(total=max_num_completed_requests)
@@ -292,6 +303,8 @@ def run_token_benchmark(
     additional_sampling_params: str,
     results_dir: str,
     user_metadata: Dict[str, Any],
+    disable_prefix_caching: bool = False,
+    unique_prompts: bool = False,
 ):
     """
     Args:
@@ -309,6 +322,8 @@ def run_token_benchmark(
             For more information see the LLM APIs documentation for the completions.
         results_dir: The directory to save the results to.
         user_metadata: Additional metadata to include in the results.
+        disable_prefix_caching: If True, add unique prefix to each prompt to prevent VLLM KV caching.
+        unique_prompts: If True, use unique random seed per prompt for maximum uniqueness.
     """
     if mean_input_tokens < 40:
         print(
@@ -327,6 +342,8 @@ def run_token_benchmark(
         stddev_output_tokens=stddev_output_tokens,
         num_concurrent_requests=num_concurrent_requests,
         additional_sampling_params=json.loads(additional_sampling_params),
+        disable_prefix_caching=disable_prefix_caching,
+        unique_prompts=unique_prompts,
     )
 
     if results_dir:
@@ -462,6 +479,55 @@ args.add_argument(
         "name=foo,bar=1. These will be added to the metadata field of the results. "
     ),
 )
+args.add_argument(
+    "--use-case",
+    type=str,
+    choices=["rag", "generate", "normal"],
+    default=None,
+    help=(
+        "Use a predefined configuration preset. Options: "
+        "rag (input: 1k-10k, output: 200-500), "
+        "generate (input: 100-200, output: 1k-10k), "
+        "normal (input: 100-200, output: 200-500). "
+        "Overrides mean/stddev token parameters when specified."
+    ),
+)
+args.add_argument(
+    "--input-token-length",
+    type=int,
+    default=None,
+    help=(
+        "Fixed input token length (sets mean with stddev=0). "
+        "Overrides --mean-input-tokens and --stddev-input-tokens."
+    ),
+)
+args.add_argument(
+    "--output-token-length",
+    type=int,
+    default=None,
+    help=(
+        "Fixed output token length (sets mean with stddev=0). "
+        "Overrides --mean-output-tokens and --stddev-output-tokens."
+    ),
+)
+args.add_argument(
+    "--disable-prefix-caching",
+    action="store_true",
+    default=False,
+    help=(
+        "Add unique prefix to each prompt to prevent VLLM prefix caching. "
+        "Use this for pure hardware performance testing."
+    ),
+)
+args.add_argument(
+    "--unique-prompts",
+    action="store_true",
+    default=False,
+    help=(
+        "Ensure every prompt is unique by using different random seeds. "
+        "Prevents any form of prompt caching across requests."
+    ),
+)
 
 if __name__ == "__main__":
     env_vars = dict(os.environ)
@@ -475,17 +541,49 @@ if __name__ == "__main__":
             key, value = item.split("=")
             user_metadata[key] = value
 
+    # Resolve token parameters based on priority:
+    # 1. --use-case preset (highest priority)
+    # 2. --input-token-length / --output-token-length
+    # 3. --mean/stddev parameters (default)
+    if args.use_case:
+        from llmperf.presets import get_preset_params
+        mean_input, stddev_input, mean_output, stddev_output = get_preset_params(args.use_case)
+        print(f"Using preset '{args.use_case}': input={mean_input}±{stddev_input}, output={mean_output}±{stddev_output}")
+    elif args.input_token_length is not None or args.output_token_length is not None:
+        # Fixed token lengths (stddev=0 for specified, use defaults for unspecified)
+        if args.input_token_length is not None:
+            mean_input = args.input_token_length
+            stddev_input = 0
+        else:
+            mean_input = args.mean_input_tokens
+            stddev_input = args.stddev_input_tokens
+
+        if args.output_token_length is not None:
+            mean_output = args.output_token_length
+            stddev_output = 0
+        else:
+            mean_output = args.mean_output_tokens
+            stddev_output = args.stddev_output_tokens
+        print(f"Using fixed token lengths: input={mean_input}±{stddev_input}, output={mean_output}±{stddev_output}")
+    else:
+        mean_input = args.mean_input_tokens
+        stddev_input = args.stddev_input_tokens
+        mean_output = args.mean_output_tokens
+        stddev_output = args.stddev_output_tokens
+
     run_token_benchmark(
         llm_api=args.llm_api,
         model=args.model,
         test_timeout_s=args.timeout,
         max_num_completed_requests=args.max_num_completed_requests,
-        mean_input_tokens=args.mean_input_tokens,
-        stddev_input_tokens=args.stddev_input_tokens,
-        mean_output_tokens=args.mean_output_tokens,
-        stddev_output_tokens=args.stddev_output_tokens,
+        mean_input_tokens=mean_input,
+        stddev_input_tokens=stddev_input,
+        mean_output_tokens=mean_output,
+        stddev_output_tokens=stddev_output,
         num_concurrent_requests=args.num_concurrent_requests,
         additional_sampling_params=args.additional_sampling_params,
         results_dir=args.results_dir,
         user_metadata=user_metadata,
+        disable_prefix_caching=args.disable_prefix_caching,
+        unique_prompts=args.unique_prompts,
     )

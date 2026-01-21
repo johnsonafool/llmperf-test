@@ -4,7 +4,8 @@ import pathlib
 import random
 import subprocess
 import time
-from typing import Any, Dict, Tuple
+import uuid
+from typing import Any, Dict, Optional, Tuple
 
 from transformers import LlamaTokenizerFast
 
@@ -61,16 +62,22 @@ def randomly_sample_sonnet_lines_prompt(
     prompt_tokens_stddev: int = 250,
     expect_output_tokens: int = 150,
     tokenizer = LlamaTokenizerFast.from_pretrained(
-        "hf-internal-testing/llama-tokenizer")
+        "hf-internal-testing/llama-tokenizer"),
+    disable_prefix_caching: bool = False,
+    request_id: Optional[str] = None,
 ) -> Tuple[str, int]:
     """Generate a prompt that randomly samples lines from a the shakespeare sonnet at sonnet.txt.
 
     Args:
-        prompt_length_mean: The mean length of the prompt to generate.
-        prompt_len_stddev: The standard deviation of the length of the prompt to generate.
+        prompt_tokens_mean: The mean length of the prompt to generate.
+        prompt_tokens_stddev: The standard deviation of the length of the prompt to generate.
         expect_output_tokens: The number of tokens to expect in the output. This is used to
-        determine the length of the prompt. The prompt will be generated such that the output
-        will be approximately this many tokens.
+            determine the length of the prompt. The prompt will be generated such that the output
+            will be approximately this many tokens.
+        disable_prefix_caching: If True, add a unique prefix to prevent VLLM KV cache reuse.
+            Use this for pure hardware performance testing.
+        request_id: Optional unique identifier for this request. Used when disable_prefix_caching
+            is True to generate unique prefixes. If not provided, a UUID will be generated.
 
     Note:
         tokens will be counted from the sonnet using the Llama tokenizer. Using one tokenizer
@@ -84,11 +91,22 @@ def randomly_sample_sonnet_lines_prompt(
 
     get_token_length = lambda text: len(tokenizer.encode(text))
 
-    prompt = (
-        "Randomly stream lines from the following text "
-        f"with {expect_output_tokens} output tokens. "
-        "Don't generate eos tokens:\n\n"
-    )
+    # Create base prompt with optional unique prefix to prevent KV caching
+    if disable_prefix_caching:
+        unique_id = request_id or uuid.uuid4().hex[:8]
+        prompt = (
+            f"[REQ-{unique_id}] "
+            "Randomly stream lines from the following text "
+            f"with {expect_output_tokens} output tokens. "
+            "Don't generate eos tokens:\n\n"
+        )
+    else:
+        prompt = (
+            "Randomly stream lines from the following text "
+            f"with {expect_output_tokens} output tokens. "
+            "Don't generate eos tokens:\n\n"
+        )
+
     # get a prompt length that is at least as long as the base
     num_prompt_tokens = sample_random_positive_int(
         prompt_tokens_mean, prompt_tokens_stddev
@@ -101,20 +119,26 @@ def randomly_sample_sonnet_lines_prompt(
     sonnet_path = pathlib.Path(__file__).parent.resolve() / "sonnet.txt"
     with open(sonnet_path, "r") as f:
         sonnet_lines = f.readlines()
-    random.shuffle(sonnet_lines)
-    sampling_lines = True
-    while sampling_lines:
+
+    # Keep adding shuffled content until we reach the target token count
+    # This allows for large token counts (e.g., 10k tokens for RAG use case)
+    while remaining_prompt_tokens > 0:
+        random.shuffle(sonnet_lines)
         for line in sonnet_lines:
             line_to_add = line
-            if remaining_prompt_tokens - get_token_length(line_to_add) < 0:
+            line_tokens = get_token_length(line_to_add)
+            if remaining_prompt_tokens - line_tokens < 0:
                 # This will cut off a line in the middle of a word, but that's ok since an
                 # llm should be able to handle that.
                 line_to_add = line_to_add[: int(math.ceil(remaining_prompt_tokens))]
-                sampling_lines = False
                 prompt += line_to_add
+                remaining_prompt_tokens = 0
                 break
             prompt += line_to_add
-            remaining_prompt_tokens -= get_token_length(line_to_add)
+            remaining_prompt_tokens -= line_tokens
+        # If we've gone through all lines and still need more tokens, loop continues
+        # with reshuffled lines
+
     return (prompt, num_prompt_tokens)
 
 
