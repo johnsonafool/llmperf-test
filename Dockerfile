@@ -1,0 +1,41 @@
+FROM python:3.10-slim
+
+LABEL maintainer="LLMPerf"
+LABEL description="LLM Performance Benchmark Tool"
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files
+COPY pyproject.toml ./
+COPY src/ ./src/
+COPY token_benchmark_ray.py ./
+COPY generate_charts.py ./
+COPY generate_reports.py ./
+COPY run.sh ./
+COPY inference.png ./
+
+# Install Python dependencies
+RUN pip install --upgrade pip && \
+    pip install . && \
+    pip install pandas pillow pyyaml matplotlib
+
+# Make run.sh executable
+RUN chmod +x run.sh
+
+# Create mount points
+RUN mkdir -p /app/result_outputs
+
+# Default command
+CMD ["./run.sh"]

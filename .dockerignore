@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Results (will be mounted)
+result_outputs/
+
+# Temp files
+*.log
+*.tmp
+tmp.yml
+
+# Documentation (not needed in container)
+*.md
+!README.md
+
+# Dev files
+requirements-dev.txt
+.dockerignore
+Dockerfile
+docker-compose.yml

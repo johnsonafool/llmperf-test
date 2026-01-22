@@ -5,10 +5,28 @@ import shutil
 from datetime import datetime
 
 import pandas as pd
+import yaml
 from PIL import Image
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def load_preset_config(use_case):
+    """Load preset configuration from presets.yml."""
+    config_paths = [
+        os.path.join(os.getcwd(), "presets.yml"),
+        os.path.join(os.path.dirname(__file__), "presets.yml"),
+    ]
+
+    for config_path in config_paths:
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f)
+            presets = config.get("presets", config)
+            if use_case in presets:
+                return presets[use_case]
+    return None
 
 # Multi-language support
 TRANSLATIONS = {
@@ -33,6 +51,18 @@ TRANSLATIONS = {
         "metric_itl": "Inter-token Latency (seconds)",
         "metric_ttft": "Time to First Token (seconds)",
         "metric_throughput": "Output Throughput (tokens/s)",
+        "section0_title": "Test Configuration",
+        "use_case": "Use Case",
+        "use_case_rag": "RAG (Retrieval-Augmented Generation)",
+        "use_case_generate": "Text Generation",
+        "use_case_normal": "Normal Conversation",
+        "input_tokens": "Input Tokens",
+        "output_tokens": "Output Tokens",
+        "token_range": "Range",
+        "token_mean_stddev": "Mean ± Stddev",
+        "test_settings": "Test Settings",
+        "cache_prevention": "Cache Prevention",
+        "cache_prevention_desc": "Prefix caching disabled + Unique prompts enabled for accurate hardware performance measurement",
     },
     "tw": {
         "title": "效能報告",
@@ -55,6 +85,18 @@ TRANSLATIONS = {
         "metric_itl": "Token 間延遲（秒）",
         "metric_ttft": "首 Token 延遲（秒）",
         "metric_throughput": "輸出吞吐量（tokens/s）",
+        "section0_title": "測試配置",
+        "use_case": "使用案例",
+        "use_case_rag": "RAG（檢索增強生成）",
+        "use_case_generate": "文本生成",
+        "use_case_normal": "一般對話",
+        "input_tokens": "輸入 Token",
+        "output_tokens": "輸出 Token",
+        "token_range": "範圍",
+        "token_mean_stddev": "平均值 ± 標準差",
+        "test_settings": "測試設定",
+        "cache_prevention": "快取防護",
+        "cache_prevention_desc": "已停用前綴快取 + 已啟用唯一提示詞，確保準確的硬體效能測量",
     },
     "cn": {
         "title": "性能报告",
@@ -77,6 +119,18 @@ TRANSLATIONS = {
         "metric_itl": "Token 间延迟（秒）",
         "metric_ttft": "首 Token 延迟（秒）",
         "metric_throughput": "输出吞吐量（tokens/s）",
+        "section0_title": "测试配置",
+        "use_case": "使用案例",
+        "use_case_rag": "RAG（检索增强生成）",
+        "use_case_generate": "文本生成",
+        "use_case_normal": "一般对话",
+        "input_tokens": "输入 Token",
+        "output_tokens": "输出 Token",
+        "token_range": "范围",
+        "token_mean_stddev": "平均值 ± 标准差",
+        "test_settings": "测试设置",
+        "cache_prevention": "缓存防护",
+        "cache_prevention_desc": "已禁用前缀缓存 + 已启用唯一提示词，确保准确的硬件性能测量",
     },
 }
 
@@ -172,12 +226,63 @@ def copy_inference_diagram(output_dir):
         return False
 
 
-def generate_report(results_dir, model_name, output_dir, lang="en"):
+def generate_test_config_section(use_case, preset_config, t):
+    """Generate the test configuration section content."""
+    if not use_case or not preset_config:
+        return ""
+
+    # Get use case display name
+    use_case_names = {
+        "rag": t.get("use_case_rag", "RAG"),
+        "generate": t.get("use_case_generate", "Text Generation"),
+        "normal": t.get("use_case_normal", "Normal Conversation"),
+    }
+    use_case_display = use_case_names.get(use_case, use_case)
+
+    # Calculate mean and stddev from min/max
+    min_in = preset_config.get("min_input_tokens", 0)
+    max_in = preset_config.get("max_input_tokens", 0)
+    min_out = preset_config.get("min_output_tokens", 0)
+    max_out = preset_config.get("max_output_tokens", 0)
+
+    mean_in = (min_in + max_in) // 2
+    stddev_in = (max_in - min_in) // 4
+    mean_out = (min_out + max_out) // 2
+    stddev_out = (max_out - min_out) // 4
+
+    section = f"""## {t.get("section0_title", "Test Configuration")}
+
+### {t.get("use_case", "Use Case")}: {use_case_display}
+
+| {t.get("token_range", "Range")} | {t.get("input_tokens", "Input Tokens")} | {t.get("output_tokens", "Output Tokens")} |
+|---|---|---|
+| Min | {min_in:,} | {min_out:,} |
+| Max | {max_in:,} | {max_out:,} |
+| **{t.get("token_mean_stddev", "Mean ± Stddev")}** | **{mean_in:,} ± {stddev_in:,}** | **{mean_out:,} ± {stddev_out:,}** |
+
+### {t.get("test_settings", "Test Settings")}
+
+- **{t.get("cache_prevention", "Cache Prevention")}**: {t.get("cache_prevention_desc", "Enabled")}
+
+---
+
+"""
+    return section
+
+
+def generate_report(results_dir, model_name, output_dir, lang="en", use_case=None):
     """Generate performance report."""
     os.makedirs(output_dir, exist_ok=True)
 
     # Get translations
     t = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
+
+    # Load preset config if use_case is provided
+    preset_config = None
+    if use_case:
+        preset_config = load_preset_config(use_case)
+        if preset_config:
+            logger.info(f"Loaded preset config for use case: {use_case}")
 
     # Split performance chart
     logger.info("Splitting performance chart...")
@@ -194,13 +299,16 @@ def generate_report(results_dir, model_name, output_dir, lang="en"):
     # Generate markdown report
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    # Generate test configuration section
+    config_section = generate_test_config_section(use_case, preset_config, t)
+
     report_content = f"""# {t["title"]}: {model_name}
 
 **{t["generated"]}:** {current_time}
 
 ---
 
-## {t["section1_title"]}
+{config_section}## {t["section1_title"]}
 
 {t["section1_intro"]}
 
@@ -268,6 +376,10 @@ if __name__ == "__main__":
         "--language", choices=["en", "tw", "cn"], default="en",
         help="Report language: en (English), tw (Traditional Chinese), cn (Simplified Chinese)"
     )
+    parser.add_argument(
+        "--use-case", choices=["rag", "generate", "normal"],
+        help="Use case preset name to include configuration details in the report"
+    )
     args = parser.parse_args()
 
     results_dir = args.results_dir
@@ -285,7 +397,7 @@ if __name__ == "__main__":
         logger.error(f"Results directory does not exist: {results_dir}")
         exit(1)
 
-    report_path = generate_report(results_dir, args.model_name, output_dir, args.language)
+    report_path = generate_report(results_dir, args.model_name, output_dir, args.language, args.use_case)
     if report_path:
         print(f"\nReport generated successfully: {report_path}")
     else:

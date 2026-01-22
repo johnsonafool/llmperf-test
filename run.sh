@@ -36,8 +36,7 @@ print(f'OPENAI_API_BASE=\"{api.get(\"openai_api_base\", \"https://api.openai.com
 bench = config.get('benchmark', {})
 print(f'MODEL_NAME=\"{bench.get(\"model_name\", \"gpt-4.1-nano\")}\"')
 print(f'MAX_COMPLETED_REQUESTS={bench.get(\"max_completed_requests\", 100)}')
-print(f'TIMEOUT={bench.get(\"timeout\", 600)}')
-print(f'REPORT_LANGUAGE=\"{bench.get(\"report_language\", \"en\")}\"')
+print(f'REQUEST_TIMEOUT={bench.get(\"request_timeout_seconds\", 600)}')
 
 # Concurrent requests as bash array
 concurrent = bench.get('concurrent_requests', [1, 10, 20, 30, 40, 50])
@@ -57,7 +56,7 @@ echo "API Base: $OPENAI_API_BASE"
 echo "Model: $MODEL_NAME"
 echo "Max completed requests: $MAX_COMPLETED_REQUESTS"
 echo "Concurrent requests: ${CONCURRENT_REQUESTS[*]}"
-echo "Timeout: $TIMEOUT"
+echo "Request timeout: ${REQUEST_TIMEOUT}s"
 echo "Presets to run: $PRESETS"
 echo ""
 
@@ -102,7 +101,7 @@ do
             --model "$MODEL_NAME" \
             $TOKEN_ARGS \
             --max-num-completed-requests "$MAX_COMPLETED_REQUESTS" \
-            --timeout "$TIMEOUT" \
+            --timeout "$REQUEST_TIMEOUT" \
             --num-concurrent-requests "$NUM" \
             --results-dir "$RESULTS_DIR/raw_data/performance/${NUM}" \
             --llm-api openai \
@@ -122,7 +121,7 @@ do
         --results-dir "$RESULTS_DIR/raw_data/performance" \
         --model-name "$MODEL_NAME" \
         --output-dir "$RESULTS_DIR/report" \
-        --language "$REPORT_LANGUAGE" || error "Report generation failed for $USE_CASE."
+        --use-case "$USE_CASE" || error "Report generation failed for $USE_CASE."
 
     info "[$USE_CASE] Performance report generated successfully."
     echo ""
