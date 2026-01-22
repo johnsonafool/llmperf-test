@@ -2,95 +2,6 @@
 
 set -e
 
-# Default values
-DEFAULT_OPENAI_API_KEY="sk-proj-xxxx"
-DEFAULT_OPENAI_API_BASE="https://api.openai.com/v1"
-DEFAULT_MODEL_NAME="gpt-4.1-nano"
-DEFAULT_MAX_COMPLETED_REQUESTS=100
-DEFAULT_REPORT_LANGUAGE="en"
-
-CONCURRENT_REQUESTS=(1 10 20 30 40 50)
-
-# Prompt for user input
-echo "=== LLM Performance Benchmark Configuration ==="
-echo ""
-
-read -sp "OpenAI API Key [default: ****]: " OPENAI_API_KEY
-echo ""
-export OPENAI_API_KEY=${OPENAI_API_KEY:-$DEFAULT_OPENAI_API_KEY}
-
-read -p "OpenAI API Base URL [default: $DEFAULT_OPENAI_API_BASE]: " OPENAI_API_BASE
-export OPENAI_API_BASE=${OPENAI_API_BASE:-$DEFAULT_OPENAI_API_BASE}
-
-read -p "Model name [default: $DEFAULT_MODEL_NAME]: " MODEL_NAME
-MODEL_NAME=${MODEL_NAME:-$DEFAULT_MODEL_NAME}
-export MODEL_NAME
-
-read -p "Max number of completed requests [default: $DEFAULT_MAX_COMPLETED_REQUESTS]: " MAX_COMPLETED_REQUESTS
-MAX_COMPLETED_REQUESTS=${MAX_COMPLETED_REQUESTS:-$DEFAULT_MAX_COMPLETED_REQUESTS}
-
-read -p "Report language (en/tw/cn) [default: $DEFAULT_REPORT_LANGUAGE]: " REPORT_LANGUAGE
-REPORT_LANGUAGE=${REPORT_LANGUAGE:-$DEFAULT_REPORT_LANGUAGE}
-
-echo ""
-echo "=== Token Configuration ==="
-echo "Choose configuration method:"
-echo "  1) Use case preset (rag/generate/normal)"
-echo "  2) Fixed token lengths"
-echo "  3) Mean/stddev (default)"
-read -p "Configuration method [1/2/3, default: 3]: " CONFIG_METHOD
-CONFIG_METHOD=${CONFIG_METHOD:-3}
-
-case $CONFIG_METHOD in
-    1)
-        echo "Available presets:"
-        echo "  rag      - Input: 1k-10k tokens, Output: 200-500 tokens"
-        echo "  generate - Input: 100-200 tokens, Output: 1k-10k tokens"
-        echo "  normal   - Input: 100-200 tokens, Output: 200-500 tokens"
-        read -p "Use case preset [default: normal]: " USE_CASE
-        USE_CASE=${USE_CASE:-normal}
-        TOKEN_ARGS="--use-case $USE_CASE"
-        ;;
-    2)
-        read -p "Input token length [default: 550]: " INPUT_TOKENS
-        INPUT_TOKENS=${INPUT_TOKENS:-550}
-        read -p "Output token length [default: 150]: " OUTPUT_TOKENS
-        OUTPUT_TOKENS=${OUTPUT_TOKENS:-150}
-        TOKEN_ARGS="--input-token-length $INPUT_TOKENS --output-token-length $OUTPUT_TOKENS"
-        ;;
-    3)
-        read -p "Mean input tokens [default: 550]: " MEAN_INPUT
-        MEAN_INPUT=${MEAN_INPUT:-550}
-        read -p "Stddev input tokens [default: 150]: " STDDEV_INPUT
-        STDDEV_INPUT=${STDDEV_INPUT:-150}
-        read -p "Mean output tokens [default: 150]: " MEAN_OUTPUT
-        MEAN_OUTPUT=${MEAN_OUTPUT:-150}
-        read -p "Stddev output tokens [default: 10]: " STDDEV_OUTPUT
-        STDDEV_OUTPUT=${STDDEV_OUTPUT:-10}
-        TOKEN_ARGS="--mean-input-tokens $MEAN_INPUT --stddev-input-tokens $STDDEV_INPUT --mean-output-tokens $MEAN_OUTPUT --stddev-output-tokens $STDDEV_OUTPUT"
-        ;;
-esac
-
-echo ""
-echo "=== Cache Prevention (for VLLM hardware testing) ==="
-read -p "Disable prefix caching for pure hardware testing? (y/n) [default: n]: " DISABLE_CACHE
-if [ "$DISABLE_CACHE" = "y" ] || [ "$DISABLE_CACHE" = "Y" ]; then
-    TOKEN_ARGS="$TOKEN_ARGS --disable-prefix-caching --unique-prompts"
-    echo "Prefix caching disabled - each prompt will have a unique prefix"
-fi
-
-echo ""
-echo "=== Configuration Summary ==="
-echo "API Base: $OPENAI_API_BASE"
-echo "Model: $MODEL_NAME"
-echo "Max completed requests: $MAX_COMPLETED_REQUESTS"
-echo "Token config: $TOKEN_ARGS"
-echo "Report language: $REPORT_LANGUAGE"
-echo ""
-
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-RESULTS_DIR="result_outputs/${MODEL_NAME}_${TIMESTAMP}"
-
 info() {
     echo "[INFO] $1"
 }
@@ -100,34 +11,127 @@ error() {
     exit 1
 }
 
-info "Starting performance evaluation for model: ${MODEL_NAME}"
-for NUM in "${CONCURRENT_REQUESTS[@]}"
-do
-    info "Running benchmark with num-concurrent-requests=$NUM"
-    python token_benchmark_ray.py \
-        --model "$MODEL_NAME" \
-        $TOKEN_ARGS \
-        --max-num-completed-requests "$MAX_COMPLETED_REQUESTS" \
-        --timeout 600 \
-        --num-concurrent-requests "$NUM" \
-        --results-dir "$RESULTS_DIR/raw_data/performance/${NUM}" \
-        --llm-api openai \
-        --additional-sampling-params '{}' || error "Benchmark failed for num-concurrent-requests=$NUM."
+# Configuration file
+CONFIG_FILE="presets.yml"
+if [ ! -f "$CONFIG_FILE" ]; then
+    error "$CONFIG_FILE not found. Please create one in the project root."
+fi
 
-    info "Benchmark completed. Results saved to $RESULTS_DIR/raw_data/performance/${NUM}"
+echo "=== LLM Performance Benchmark ==="
+echo "Loading configuration from $CONFIG_FILE..."
+echo ""
+
+# Read all configuration from YAML
+eval "$(python3 -c "
+import yaml
+with open('$CONFIG_FILE', 'r') as f:
+    config = yaml.safe_load(f)
+
+# API config
+api = config.get('api', {})
+print(f'OPENAI_API_KEY=\"{api.get(\"openai_api_key\", \"\")}\"')
+print(f'OPENAI_API_BASE=\"{api.get(\"openai_api_base\", \"https://api.openai.com/v1\")}\"')
+
+# Benchmark config
+bench = config.get('benchmark', {})
+print(f'MODEL_NAME=\"{bench.get(\"model_name\", \"gpt-4.1-nano\")}\"')
+print(f'MAX_COMPLETED_REQUESTS={bench.get(\"max_completed_requests\", 100)}')
+print(f'TIMEOUT={bench.get(\"timeout\", 600)}')
+print(f'REPORT_LANGUAGE=\"{bench.get(\"report_language\", \"en\")}\"')
+
+# Concurrent requests as bash array
+concurrent = bench.get('concurrent_requests', [1, 10, 20, 30, 40, 50])
+print(f'CONCURRENT_REQUESTS=({\" \".join(map(str, concurrent))})')
+
+# Preset names
+presets = config.get('presets', {})
+print(f'PRESETS=\"{\" \".join(presets.keys())}\"')
+")"
+
+export OPENAI_API_KEY
+export OPENAI_API_BASE
+export MODEL_NAME
+
+echo "=== Configuration Summary ==="
+echo "API Base: $OPENAI_API_BASE"
+echo "Model: $MODEL_NAME"
+echo "Max completed requests: $MAX_COMPLETED_REQUESTS"
+echo "Concurrent requests: ${CONCURRENT_REQUESTS[*]}"
+echo "Timeout: $TIMEOUT"
+echo "Presets to run: $PRESETS"
+echo ""
+
+# Display preset details
+echo "=== Preset Details ==="
+python3 -c "
+import yaml
+with open('$CONFIG_FILE', 'r') as f:
+    config = yaml.safe_load(f)
+presets = config.get('presets', {})
+for name, preset in presets.items():
+    min_in = preset.get('min_input_tokens', 0)
+    max_in = preset.get('max_input_tokens', 0)
+    min_out = preset.get('min_output_tokens', 0)
+    max_out = preset.get('max_output_tokens', 0)
+    print(f'  {name:10} - Input: {min_in}-{max_in}, Output: {min_out}-{max_out}')
+"
+echo ""
+
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+BASE_RESULTS_DIR="result_outputs/${MODEL_NAME}_${TIMESTAMP}"
+
+info "Starting performance evaluation for model: ${MODEL_NAME}"
+info "Running benchmarks for all presets: $PRESETS"
+echo ""
+
+# Loop through each preset
+for USE_CASE in $PRESETS
+do
+    info "=========================================="
+    info "Starting benchmark for preset: $USE_CASE"
+    info "=========================================="
+
+    RESULTS_DIR="$BASE_RESULTS_DIR/$USE_CASE"
+    TOKEN_ARGS="--use-case $USE_CASE --disable-prefix-caching --unique-prompts"
+
+    # Run benchmarks for all concurrent request levels
+    for NUM in "${CONCURRENT_REQUESTS[@]}"
+    do
+        info "[$USE_CASE] Running benchmark with num-concurrent-requests=$NUM"
+        python token_benchmark_ray.py \
+            --model "$MODEL_NAME" \
+            $TOKEN_ARGS \
+            --max-num-completed-requests "$MAX_COMPLETED_REQUESTS" \
+            --timeout "$TIMEOUT" \
+            --num-concurrent-requests "$NUM" \
+            --results-dir "$RESULTS_DIR/raw_data/performance/${NUM}" \
+            --llm-api openai \
+            --additional-sampling-params '{}' || error "Benchmark failed for $USE_CASE with num-concurrent-requests=$NUM."
+
+        info "[$USE_CASE] Benchmark completed. Results saved to $RESULTS_DIR/raw_data/performance/${NUM}"
+    done
+
+    info "[$USE_CASE] Generating charts from the results..."
+    python generate_charts.py \
+        --results-dir "$RESULTS_DIR/raw_data/performance" || error "Chart generation failed for $USE_CASE."
+
+    info "[$USE_CASE] Charts generated successfully."
+
+    info "[$USE_CASE] Generating performance report..."
+    python generate_reports.py \
+        --results-dir "$RESULTS_DIR/raw_data/performance" \
+        --model-name "$MODEL_NAME" \
+        --output-dir "$RESULTS_DIR/report" \
+        --language "$REPORT_LANGUAGE" || error "Report generation failed for $USE_CASE."
+
+    info "[$USE_CASE] Performance report generated successfully."
+    echo ""
 done
 
-info "Generating charts from the results..."
-python generate_charts.py \
-    --results-dir "$RESULTS_DIR/raw_data/performance" || error "Chart generation failed."
-
-info "Charts generated successfully. Saved in $RESULTS_DIR/raw_data/performance."
-
-info "Generating performance report..."
-python generate_reports.py \
-    --results-dir "$RESULTS_DIR/raw_data/performance" \
-    --model-name "$MODEL_NAME" \
-    --output-dir "$RESULTS_DIR/report" \
-    --language "$REPORT_LANGUAGE" || error "Report generation failed."
-
-info "Performance report generated successfully. Saved in $RESULTS_DIR/report/"
+info "=========================================="
+info "All benchmarks completed!"
+info "Results saved in: $BASE_RESULTS_DIR"
+for USE_CASE in $PRESETS; do
+    info "  - $BASE_RESULTS_DIR/$USE_CASE/"
+done
+info "=========================================="

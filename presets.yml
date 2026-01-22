@@ -1,0 +1,39 @@
+# LLM Performance Benchmark Configuration
+# Customize these values before running the benchmark
+
+# API Configuration
+api:
+  openai_api_key: "sk-proj-xxxx"
+  openai_api_base: "https://api.openai.com/v1"
+
+# Benchmark Configuration
+benchmark:
+  model_name: "gpt-4.1-nano"
+  max_completed_requests: 100
+  concurrent_requests: [1, 10, 20, 30, 40, 50]
+  timeout: 600
+  report_language: "en"
+
+# Use Case Presets
+# You can customize these values or add new presets
+presets:
+  rag:
+    description: "RAG use case - long context retrieval with short answers"
+    min_input_tokens: 1000
+    max_input_tokens: 10000
+    min_output_tokens: 200
+    max_output_tokens: 500
+
+  generate:
+    description: "Generation use case - short prompt with long output"
+    min_input_tokens: 100
+    max_input_tokens: 200
+    min_output_tokens: 1000
+    max_output_tokens: 10000
+
+  normal:
+    description: "Normal use case - balanced input/output"
+    min_input_tokens: 100
+    max_input_tokens: 200
+    min_output_tokens: 200
+    max_output_tokens: 500

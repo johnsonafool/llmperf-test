@@ -1,30 +1,45 @@
 """Use case preset configurations for LLM performance benchmarking."""
 
+from pathlib import Path
 from typing import Dict, Tuple
 
-USE_CASE_PRESETS: Dict[str, Dict[str, int]] = {
-    "rag": {
-        "description": "RAG use case - long context retrieval with short answers",
-        "min_input_tokens": 1000,
-        "max_input_tokens": 10000,
-        "min_output_tokens": 200,
-        "max_output_tokens": 500,
-    },
-    "generate": {
-        "description": "Generation use case - short prompt with long output",
-        "min_input_tokens": 100,
-        "max_input_tokens": 200,
-        "min_output_tokens": 1000,
-        "max_output_tokens": 10000,
-    },
-    "normal": {
-        "description": "Normal use case - balanced input/output",
-        "min_input_tokens": 100,
-        "max_input_tokens": 200,
-        "min_output_tokens": 200,
-        "max_output_tokens": 500,
-    },
-}
+import yaml
+
+
+def _load_presets() -> Dict[str, Dict[str, int]]:
+    """Load presets from YAML file.
+
+    Looks for presets.yml in the following order:
+    1. Current working directory
+    2. Project root (relative to this file)
+    """
+    config = None
+
+    # Try current working directory first
+    cwd_path = Path.cwd() / "presets.yml"
+    if cwd_path.exists():
+        with open(cwd_path, "r") as f:
+            config = yaml.safe_load(f)
+
+    # Try project root (3 levels up from this file: src/llmperf/presets.py -> root)
+    if config is None:
+        project_root = Path(__file__).parent.parent.parent / "presets.yml"
+        if project_root.exists():
+            with open(project_root, "r") as f:
+                config = yaml.safe_load(f)
+
+    if config is None:
+        raise FileNotFoundError(
+            "presets.yml not found. Please create one in the project root or current directory."
+        )
+
+    # Extract presets from the config (supports both nested and flat structure)
+    if "presets" in config:
+        return config["presets"]
+    return config
+
+
+USE_CASE_PRESETS: Dict[str, Dict[str, int]] = _load_presets()
 
 
 def get_preset(name: str) -> Dict[str, int]:
