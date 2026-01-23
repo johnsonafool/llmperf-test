@@ -69,11 +69,18 @@ docker load -i llmperf.tar
 ### 步驟四：執行測試
 
 ```bash
+# 先建立本地結果目錄
+mkdir -p result_outputs
+
+# 執行測試
 docker run -it --rm \
+    --shm-size=4g \
     -v $(pwd)/presets.yml:/app/presets.yml:ro \
     -v $(pwd)/result_outputs:/app/result_outputs \
     llmperf:latest
 ```
+
+> **注意：** `--shm-size=4g` 是 Ray 所需的共享記憶體大小，避免效能警告。
 
 ### 掛載點說明
 

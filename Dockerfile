@@ -31,11 +31,14 @@ RUN pip install --upgrade pip && \
     pip install . && \
     pip install pandas pillow pyyaml matplotlib
 
+# Copy sonnet.txt to installed package location
+RUN cp /app/src/llmperf/sonnet.txt $(python -c "import llmperf; print(llmperf.__path__[0])")
+
 # Make run.sh executable
 RUN chmod +x run.sh
 
-# Create mount points
-RUN mkdir -p /app/result_outputs
+# Create mount points with proper permissions
+RUN mkdir -p /app/result_outputs && chmod 777 /app/result_outputs
 
 # Default command
 CMD ["./run.sh"]
