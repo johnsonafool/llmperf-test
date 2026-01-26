@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 LABEL maintainer="LLMPerf"
 LABEL description="LLM Performance Benchmark Tool"
@@ -17,6 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
 # Copy project files
 COPY pyproject.toml ./
 COPY src/ ./src/
@@ -27,9 +31,8 @@ COPY run.sh ./
 COPY inference.png ./
 
 # Install Python dependencies
-RUN pip install --upgrade pip && \
-    pip install . && \
-    pip install pandas pillow pyyaml matplotlib
+RUN uv pip install --system . && \
+    uv pip install --system pandas pillow pyyaml matplotlib
 
 # Copy sonnet.txt to installed package location
 RUN cp /app/src/llmperf/sonnet.txt $(python -c "import llmperf; print(llmperf.__path__[0])")
