@@ -1,3 +1,4 @@
+import logging
 import threading
 import argparse
 from collections.abc import Iterable
@@ -530,8 +531,15 @@ args.add_argument(
 )
 
 if __name__ == "__main__":
+    # Suppress Ray metrics agent error logs
+    logging.getLogger("ray").setLevel(logging.WARNING)
+
     env_vars = dict(os.environ)
-    ray.init(runtime_env={"env_vars": env_vars})
+    ray.init(
+        runtime_env={"env_vars": env_vars},
+        logging_level=logging.WARNING,
+        log_to_driver=False,
+    )
     args = args.parse_args()
 
     # Parse user metadata.

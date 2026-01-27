@@ -50,6 +50,7 @@ print(f'PRESETS=\"{\" \".join(presets.keys())}\"')
 export OPENAI_API_KEY
 export OPENAI_API_BASE
 export MODEL_NAME
+export RAY_DEDUP_LOGS=0
 
 echo "=== Configuration Summary ==="
 echo "API Base: $OPENAI_API_BASE"
@@ -115,22 +116,20 @@ do
         --results-dir "$RESULTS_DIR/raw_data/performance" || error "Chart generation failed for $USE_CASE."
 
     info "[$USE_CASE] Charts generated successfully."
-
-    info "[$USE_CASE] Generating performance report..."
-    python generate_reports.py \
-        --results-dir "$RESULTS_DIR/raw_data/performance" \
-        --model-name "$MODEL_NAME" \
-        --output-dir "$RESULTS_DIR/report" \
-        --use-case "$USE_CASE" || error "Report generation failed for $USE_CASE."
-
-    info "[$USE_CASE] Performance report generated successfully."
     echo ""
 done
+
+# Generate overall report combining all use cases
+info "Generating overall performance report..."
+python generate_overall_report.py \
+    --results-dir "$BASE_RESULTS_DIR" \
+    --model-name "$MODEL_NAME" \
+    --output-dir "$BASE_RESULTS_DIR/report" || error "Overall report generation failed."
+
+info "Overall performance report generated successfully."
 
 info "=========================================="
 info "All benchmarks completed!"
 info "Results saved in: $BASE_RESULTS_DIR"
-for USE_CASE in $PRESETS; do
-    info "  - $BASE_RESULTS_DIR/$USE_CASE/"
-done
+info "Overall report: $BASE_RESULTS_DIR/report/performance_report.md"
 info "=========================================="
