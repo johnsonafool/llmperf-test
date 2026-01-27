@@ -27,6 +27,7 @@ COPY src/ ./src/
 COPY token_benchmark_ray.py ./
 COPY generate_charts.py ./
 COPY generate_reports.py ./
+COPY generate_overall_report.py ./
 COPY run.sh ./
 COPY inference.png ./
 
