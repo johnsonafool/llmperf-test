@@ -37,6 +37,10 @@ RUN uv pip install --system . && \
 # Copy sonnet.txt to installed package location
 RUN cp /app/src/llmperf/sonnet.txt $(python -c "import llmperf; print(llmperf.__path__[0])")
 
+# Download and cache tokenizer for offline use
+RUN python -c "from transformers import LlamaTokenizerFast; LlamaTokenizerFast.from_pretrained('hf-internal-testing/llama-tokenizer').save_pretrained('/app/tokenizer')"
+ENV LLMPERF_TOKENIZER_PATH="/app/tokenizer"
+
 # Make run.sh executable
 RUN chmod +x run.sh
 

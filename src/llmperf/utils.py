@@ -1,5 +1,6 @@
 import json
 import math
+import os
 import pathlib
 import random
 import subprocess
@@ -11,6 +12,10 @@ from transformers import LlamaTokenizerFast
 
 
 RESULTS_VERSION = "2023-08-31"
+
+# Load tokenizer from local path if available (for offline/Docker use), otherwise from HuggingFace
+_TOKENIZER_PATH = os.environ.get("LLMPERF_TOKENIZER_PATH", "hf-internal-testing/llama-tokenizer")
+_tokenizer = LlamaTokenizerFast.from_pretrained(_TOKENIZER_PATH)
 
 
 class LLMPerfResults:
@@ -61,8 +66,7 @@ def randomly_sample_sonnet_lines_prompt(
     prompt_tokens_mean: int = 550,
     prompt_tokens_stddev: int = 250,
     expect_output_tokens: int = 150,
-    tokenizer = LlamaTokenizerFast.from_pretrained(
-        "hf-internal-testing/llama-tokenizer"),
+    tokenizer = None,
     disable_prefix_caching: bool = False,
     request_id: Optional[str] = None,
 ) -> Tuple[str, int]:
@@ -88,6 +92,8 @@ def randomly_sample_sonnet_lines_prompt(
     Returns:
         A tuple of the prompt and the length of the prompt.
     """
+    if tokenizer is None:
+        tokenizer = _tokenizer
 
     get_token_length = lambda text: len(tokenizer.encode(text))
 

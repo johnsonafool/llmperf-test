@@ -50,10 +50,8 @@ class OpenAIChatCompletionsClient(LLMClient):
         address = os.environ.get("OPENAI_API_BASE")
         if not address:
             raise ValueError("the environment variable OPENAI_API_BASE must be set.")
-        key = os.environ.get("OPENAI_API_KEY")
-        if not key:
-            raise ValueError("the environment variable OPENAI_API_KEY must be set.")
-        headers = {"Authorization": f"Bearer {key}"}
+        key = os.environ.get("OPENAI_API_KEY", "")
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
         if not address:
             raise ValueError("No host provided.")
         if not address.endswith("/"):

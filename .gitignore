@@ -239,9 +239,9 @@ build/
 dist/
 
 # results
-output/
-*.json
-# result_outputs/
+# output/
+# *.json
+result_outputs/
 
 __pycache__
 **/__pycache__/
@@ -249,3 +249,7 @@ __pycache__
 # venv
 .venv/
 .env
+
+presetscopy.yml
+tmp.yml
+llmperf.tar

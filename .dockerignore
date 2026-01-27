@@ -40,3 +40,5 @@ requirements-dev.txt
 .dockerignore
 Dockerfile
 docker-compose.yml
+presetscopy.yml
+.env

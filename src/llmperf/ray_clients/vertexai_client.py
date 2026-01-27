@@ -11,6 +11,9 @@ from llmperf.ray_llm_client import LLMClient
 from llmperf.models import RequestConfig
 from llmperf import common_metrics
 
+# Load tokenizer from local path if available (for offline/Docker use), otherwise from HuggingFace
+_TOKENIZER_PATH = os.environ.get("LLMPERF_TOKENIZER_PATH", "hf-internal-testing/llama-tokenizer")
+
 
 @ray.remote
 class VertexAIClient(LLMClient):
@@ -19,9 +22,7 @@ class VertexAIClient(LLMClient):
     def __init__(self):
         # VertexAI doesn't return the number of tokens that are generated so we approximate it by
         # using the llama tokenizer.
-        self.tokenizer = LlamaTokenizerFast.from_pretrained(
-            "hf-internal-testing/llama-tokenizer"
-        )
+        self.tokenizer = LlamaTokenizerFast.from_pretrained(_TOKENIZER_PATH)
 
     def llm_request(self, request_config: RequestConfig) -> Dict[str, Any]:
         project_id = os.environ.get("GCLOUD_PROJECT_ID")
