@@ -9,7 +9,7 @@ api:
 # Benchmark Configuration
 benchmark:
   model_name: "gpt-4.1-nano"
-  max_completed_requests: 100
+  rounds: 5
   concurrent_requests: [1, 10, 20, 30, 40, 50]
   request_timeout_seconds: 600
 

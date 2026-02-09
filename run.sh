@@ -39,7 +39,7 @@ print(f'OPENAI_API_BASE=\"{api.get(\"openai_api_base\", \"https://api.openai.com
 # Benchmark config
 bench = config.get('benchmark', {})
 print(f'MODEL_NAME=\"{bench.get(\"model_name\", \"gpt-4.1-nano\")}\"')
-print(f'MAX_COMPLETED_REQUESTS={bench.get(\"max_completed_requests\", 100)}')
+print(f'ROUNDS={bench.get(\"rounds\", 5)}')
 print(f'REQUEST_TIMEOUT={bench.get(\"request_timeout_seconds\", 600)}')
 
 # Concurrent requests as bash array
@@ -59,7 +59,7 @@ export RAY_DEDUP_LOGS=0
 echo "=== Configuration Summary ==="
 echo "API Base: $OPENAI_API_BASE"
 echo "Model: $MODEL_NAME"
-echo "Max completed requests: $MAX_COMPLETED_REQUESTS"
+echo "Rounds: $ROUNDS"
 echo "Concurrent requests: ${CONCURRENT_REQUESTS[*]}"
 echo "Request timeout: ${REQUEST_TIMEOUT}s"
 echo "Presets to run: $PRESETS"
@@ -101,7 +101,8 @@ do
     # Run benchmarks for all concurrent request levels
     for NUM in "${CONCURRENT_REQUESTS[@]}"
     do
-        info "[$USE_CASE] Running benchmark with num-concurrent-requests=$NUM"
+        MAX_COMPLETED_REQUESTS=$((NUM * ROUNDS))
+        info "[$USE_CASE] Running benchmark with num-concurrent-requests=$NUM, max-completed-requests=$MAX_COMPLETED_REQUESTS ($ROUNDS rounds)"
         python token_benchmark_ray.py \
             --model "$MODEL_NAME" \
             $TOKEN_ARGS \
