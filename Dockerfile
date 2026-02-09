@@ -21,19 +21,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
-# Copy project files
+# Install Python dependencies (cached layer - only invalidated when deps change)
 COPY pyproject.toml ./
 COPY src/ ./src/
+RUN uv pip install --system . && \
+    uv pip install --system pandas pillow pyyaml matplotlib
+
+# Copy application files (changes here won't bust the dependency cache)
 COPY token_benchmark_ray.py ./
 COPY generate_charts.py ./
 COPY generate_reports.py ./
 COPY generate_overall_report.py ./
 COPY run.sh ./
 COPY inference.png ./
-
-# Install Python dependencies
-RUN uv pip install --system . && \
-    uv pip install --system pandas pillow pyyaml matplotlib
 
 # Copy sonnet.txt to installed package location
 RUN cp /app/src/llmperf/sonnet.txt $(python -c "import llmperf; print(llmperf.__path__[0])")
