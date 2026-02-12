@@ -1,4 +1,6 @@
 import argparse
+import glob
+import json
 import logging
 import os
 import shutil
@@ -58,8 +60,10 @@ TRANSLATIONS = {
         "use_case_normal": "Normal Conversation",
         "input_tokens": "Input Tokens",
         "output_tokens": "Output Tokens",
-        "token_range": "Range",
-        "token_mean_stddev": "Mean ± Stddev",
+        "token_config": "Configuration",
+        "token_range": "Preset Range",
+        "token_fixed": "Fixed Value",
+        "rounds": "Rounds",
         "test_settings": "Test Settings",
         "cache_prevention": "Cache Prevention",
         "cache_prevention_desc": "Prefix caching disabled + Unique prompts enabled for accurate hardware performance measurement",
@@ -92,8 +96,10 @@ TRANSLATIONS = {
         "use_case_normal": "一般對話",
         "input_tokens": "輸入 Token",
         "output_tokens": "輸出 Token",
-        "token_range": "範圍",
-        "token_mean_stddev": "平均值 ± 標準差",
+        "token_config": "配置",
+        "token_range": "預設範圍",
+        "token_fixed": "固定值",
+        "rounds": "輪次",
         "test_settings": "測試設定",
         "cache_prevention": "快取防護",
         "cache_prevention_desc": "已停用前綴快取 + 已啟用唯一提示詞，確保準確的硬體效能測量",
@@ -126,8 +132,10 @@ TRANSLATIONS = {
         "use_case_normal": "一般对话",
         "input_tokens": "输入 Token",
         "output_tokens": "输出 Token",
-        "token_range": "范围",
-        "token_mean_stddev": "平均值 ± 标准差",
+        "token_config": "配置",
+        "token_range": "预设范围",
+        "token_fixed": "固定值",
+        "rounds": "轮次",
         "test_settings": "测试设置",
         "cache_prevention": "缓存防护",
         "cache_prevention_desc": "已禁用前缀缓存 + 已启用唯一提示词，确保准确的硬件性能测量",
@@ -226,7 +234,19 @@ def copy_inference_diagram(output_dir):
         return False
 
 
-def generate_test_config_section(use_case, preset_config, t):
+def read_fixed_tokens_from_summary(results_dir):
+    """Read the actual fixed input/output tokens from a summary JSON in results_dir."""
+    for summary_file in glob.glob(os.path.join(results_dir, "*", "*_summary.json")):
+        try:
+            with open(summary_file, "r") as f:
+                data = json.load(f)
+            return data.get("mean_input_tokens", 0), data.get("mean_output_tokens", 0)
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return None, None
+
+
+def generate_test_config_section(use_case, preset_config, results_dir, t):
     """Generate the test configuration section content."""
     if not use_case or not preset_config:
         return ""
@@ -239,26 +259,23 @@ def generate_test_config_section(use_case, preset_config, t):
     }
     use_case_display = use_case_names.get(use_case, use_case)
 
-    # Calculate mean and stddev from min/max
+    # Preset range from config
     min_in = preset_config.get("min_input_tokens", 0)
     max_in = preset_config.get("max_input_tokens", 0)
     min_out = preset_config.get("min_output_tokens", 0)
     max_out = preset_config.get("max_output_tokens", 0)
 
-    mean_in = (min_in + max_in) // 2
-    stddev_in = (max_in - min_in) // 4
-    mean_out = (min_out + max_out) // 2
-    stddev_out = (max_out - min_out) // 4
+    # Read actual fixed tokens used from summary JSON
+    fixed_in, fixed_out = read_fixed_tokens_from_summary(results_dir)
 
     section = f"""## {t.get("section0_title", "Test Configuration")}
 
 ### {t.get("use_case", "Use Case")}: {use_case_display}
 
-| {t.get("token_range", "Range")} | {t.get("input_tokens", "Input Tokens")} | {t.get("output_tokens", "Output Tokens")} |
+| {t.get("token_config", "Configuration")} | {t.get("input_tokens", "Input Tokens")} | {t.get("output_tokens", "Output Tokens")} |
 |---|---|---|
-| Min | {min_in:,} | {min_out:,} |
-| Max | {max_in:,} | {max_out:,} |
-| **{t.get("token_mean_stddev", "Mean ± Stddev")}** | **{mean_in:,} ± {stddev_in:,}** | **{mean_out:,} ± {stddev_out:,}** |
+| {t.get("token_range", "Preset Range")} | {min_in:,} - {max_in:,} | {min_out:,} - {max_out:,} |
+| **{t.get("token_fixed", "Fixed Value")}** | **{fixed_in:,}** | **{fixed_out:,}** |
 
 ### {t.get("test_settings", "Test Settings")}
 
@@ -300,7 +317,7 @@ def generate_report(results_dir, model_name, output_dir, lang="en", use_case=Non
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Generate test configuration section
-    config_section = generate_test_config_section(use_case, preset_config, t)
+    config_section = generate_test_config_section(use_case, preset_config, results_dir, t)
 
     report_content = f"""# {t["title"]}: {model_name}
 

@@ -96,7 +96,26 @@ do
     info "=========================================="
 
     RESULTS_DIR="$BASE_RESULTS_DIR/$USE_CASE"
-    TOKEN_ARGS="--use-case $USE_CASE --disable-prefix-caching --unique-prompts"
+
+    # Sample one fixed input/output token pair from the preset range (Gaussian distribution)
+    eval "$(python3 -c "
+import yaml, random
+with open('$CONFIG_FILE', 'r') as f:
+    preset = yaml.safe_load(f)['presets']['$USE_CASE']
+def sample_gaussian(min_val, max_val):
+    mean = (min_val + max_val) // 2
+    stddev = max((max_val - min_val) // 4, 1)
+    while True:
+        val = int(random.gauss(mean, stddev))
+        if val > 0:
+            return val
+input_tokens = sample_gaussian(preset['min_input_tokens'], preset['max_input_tokens'])
+output_tokens = sample_gaussian(preset['min_output_tokens'], preset['max_output_tokens'])
+print(f'FIXED_INPUT_TOKENS={input_tokens}')
+print(f'FIXED_OUTPUT_TOKENS={output_tokens}')
+")"
+    info "[$USE_CASE] Fixed token pair: input=$FIXED_INPUT_TOKENS, output=$FIXED_OUTPUT_TOKENS"
+    TOKEN_ARGS="--mean-input-tokens $FIXED_INPUT_TOKENS --stddev-input-tokens 0 --mean-output-tokens $FIXED_OUTPUT_TOKENS --stddev-output-tokens 0 --disable-prefix-caching --unique-prompts"
 
     # Run benchmarks for all concurrent request levels
     for NUM in "${CONCURRENT_REQUESTS[@]}"
