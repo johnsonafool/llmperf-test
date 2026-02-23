@@ -18,6 +18,11 @@ benchmark:
 presets:
   rag:
     description: "RAG use case - long context retrieval with short answers"
+    use_fix_or_range: "fixed"  # Options: "fixed" or "range", default read fixed if this value is not set
+
+    fixed_input_tokens: 5500
+    fixed_output_tokens: 350
+
     min_input_tokens: 1000
     max_input_tokens: 10000
     min_output_tokens: 200
@@ -25,6 +30,11 @@ presets:
 
   generate:
     description: "Generation use case - short prompt with long output"
+    use_fix_or_range: "fixed" # Options: "fixed" or "range", default read fixed if this value is not set
+
+    fixed_input_tokens: 150
+    fixed_output_tokens: 5500
+
     min_input_tokens: 100
     max_input_tokens: 200
     min_output_tokens: 1000
@@ -32,6 +42,11 @@ presets:
 
   normal:
     description: "Normal use case - balanced input/output"
+    use_fix_or_range: "fixed" # Options: "fixed" or "range", default read fixed if this value is not set
+
+    fixed_input_tokens: 150
+    fixed_output_tokens: 350
+
     min_input_tokens: 100
     max_input_tokens: 200
     min_output_tokens: 200

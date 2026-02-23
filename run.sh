@@ -73,11 +73,17 @@ with open('$CONFIG_FILE', 'r') as f:
     config = yaml.safe_load(f)
 presets = config.get('presets', {})
 for name, preset in presets.items():
-    min_in = preset.get('min_input_tokens', 0)
-    max_in = preset.get('max_input_tokens', 0)
-    min_out = preset.get('min_output_tokens', 0)
-    max_out = preset.get('max_output_tokens', 0)
-    print(f'  {name:10} - Input: {min_in}-{max_in}, Output: {min_out}-{max_out}')
+    mode = preset.get('use_fix_or_range', 'fixed')
+    if mode == 'fixed':
+        fix_in = preset.get('fixed_input_tokens', 0)
+        fix_out = preset.get('fixed_output_tokens', 0)
+        print(f'  {name:10} - [fixed]  Input: {fix_in}, Output: {fix_out}')
+    else:
+        min_in = preset.get('min_input_tokens', 0)
+        max_in = preset.get('max_input_tokens', 0)
+        min_out = preset.get('min_output_tokens', 0)
+        max_out = preset.get('max_output_tokens', 0)
+        print(f'  {name:10} - [range]  Input: {min_in}-{max_in}, Output: {min_out}-{max_out}')
 "
 echo ""
 
@@ -97,25 +103,38 @@ do
 
     RESULTS_DIR="$BASE_RESULTS_DIR/$USE_CASE"
 
-    # Sample one fixed input/output token pair from the preset range (Gaussian distribution)
+    # Determine token values based on use_fix_or_range setting (default: fixed)
     eval "$(python3 -c "
 import yaml, random
 with open('$CONFIG_FILE', 'r') as f:
     preset = yaml.safe_load(f)['presets']['$USE_CASE']
-def sample_gaussian(min_val, max_val):
-    mean = (min_val + max_val) // 2
-    stddev = max((max_val - min_val) // 4, 1)
-    while True:
-        val = int(random.gauss(mean, stddev))
-        if val > 0:
-            return val
-input_tokens = sample_gaussian(preset['min_input_tokens'], preset['max_input_tokens'])
-output_tokens = sample_gaussian(preset['min_output_tokens'], preset['max_output_tokens'])
+mode = preset.get('use_fix_or_range', 'fixed')
+if mode == 'range':
+    def sample_gaussian(min_val, max_val):
+        mean = (min_val + max_val) // 2
+        stddev = max((max_val - min_val) // 4, 1)
+        while True:
+            val = int(random.gauss(mean, stddev))
+            if val > 0:
+                return val
+    input_tokens = sample_gaussian(preset['min_input_tokens'], preset['max_input_tokens'])
+    output_tokens = sample_gaussian(preset['min_output_tokens'], preset['max_output_tokens'])
+else:
+    input_tokens = preset['fixed_input_tokens']
+    output_tokens = preset['fixed_output_tokens']
 print(f'FIXED_INPUT_TOKENS={input_tokens}')
 print(f'FIXED_OUTPUT_TOKENS={output_tokens}')
+print(f'TOKEN_MODE={mode}')
 ")"
-    info "[$USE_CASE] Fixed token pair: input=$FIXED_INPUT_TOKENS, output=$FIXED_OUTPUT_TOKENS"
+    info "[$USE_CASE] Token mode=$TOKEN_MODE, input=$FIXED_INPUT_TOKENS, output=$FIXED_OUTPUT_TOKENS"
     TOKEN_ARGS="--mean-input-tokens $FIXED_INPUT_TOKENS --stddev-input-tokens 0 --mean-output-tokens $FIXED_OUTPUT_TOKENS --stddev-output-tokens 0 --disable-prefix-caching --unique-prompts"
+
+    # When fixed mode, set min_tokens to guarantee exact output length on vLLM
+    if [ "$TOKEN_MODE" = "fixed" ]; then
+        SAMPLING_PARAMS="{\"min_tokens\": $FIXED_OUTPUT_TOKENS}"
+    else
+        SAMPLING_PARAMS="{}"
+    fi
 
     # Run benchmarks for all concurrent request levels
     for NUM in "${CONCURRENT_REQUESTS[@]}"
@@ -130,7 +149,7 @@ print(f'FIXED_OUTPUT_TOKENS={output_tokens}')
             --num-concurrent-requests "$NUM" \
             --results-dir "$RESULTS_DIR/raw_data/performance/${NUM}" \
             --llm-api openai \
-            --additional-sampling-params '{}' || error "Benchmark failed for $USE_CASE with num-concurrent-requests=$NUM."
+            --additional-sampling-params "$SAMPLING_PARAMS" || error "Benchmark failed for $USE_CASE with num-concurrent-requests=$NUM."
 
         info "[$USE_CASE] Benchmark completed. Results saved to $RESULTS_DIR/raw_data/performance/${NUM}"
     done
