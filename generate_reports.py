@@ -240,7 +240,10 @@ def read_fixed_tokens_from_summary(results_dir):
         try:
             with open(summary_file, "r") as f:
                 data = json.load(f)
-            return data.get("mean_input_tokens", 0), data.get("mean_output_tokens", 0)
+            return (
+                data.get("results_number_input_tokens_mean", data.get("mean_input_tokens", 0)),
+                data.get("results_number_output_tokens_mean", data.get("mean_output_tokens", 0)),
+            )
         except (json.JSONDecodeError, KeyError):
             continue
     return None, None

@@ -129,8 +129,10 @@ def get_token_throughput_latencies(
                 num_output_tokens = get_token_length(gen_text)
                 with completed_requests_lock:
                     if num_completed_requests < max_num_completed_requests:
-                        if num_output_tokens:
-                            request_metrics[common_metrics.INTER_TOKEN_LAT] /= request_metrics[common_metrics.NUM_OUTPUT_TOKENS]
+                        if num_output_tokens > 1:
+                            request_metrics[common_metrics.INTER_TOKEN_LAT] = (
+                                request_metrics[common_metrics.E2E_LAT] - request_metrics[common_metrics.TTFT]
+                            ) / (num_output_tokens - 1)
                         else:
                             request_metrics[common_metrics.INTER_TOKEN_LAT] = 0
                         request_metrics[common_metrics.NUM_OUTPUT_TOKENS] = num_output_tokens
@@ -166,8 +168,10 @@ def get_token_throughput_latencies(
         num_output_tokens = get_token_length(gen_text)
         with completed_requests_lock:
             if num_completed_requests < max_num_completed_requests:
-                if num_output_tokens:
-                    request_metrics[common_metrics.INTER_TOKEN_LAT] /= num_output_tokens
+                if num_output_tokens > 1:
+                    request_metrics[common_metrics.INTER_TOKEN_LAT] = (
+                        request_metrics[common_metrics.E2E_LAT] - request_metrics[common_metrics.TTFT]
+                    ) / (num_output_tokens - 1)
                 else:
                     request_metrics[common_metrics.INTER_TOKEN_LAT] = 0
                 request_metrics[common_metrics.NUM_OUTPUT_TOKENS] = num_output_tokens
