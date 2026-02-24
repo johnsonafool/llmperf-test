@@ -21,13 +21,19 @@ api:
 # 基準測試設定
 benchmark:
   model_name: "gpt-4.1-nano"
-  max_completed_requests: 100
+  rounds: 5
   concurrent_requests: [1, 10, 20, 30, 40, 50]
   request_timeout_seconds: 600
 
 # 使用案例預設
 presets:
   rag:
+    description: "RAG use case - long context retrieval with short answers"
+    use_fix_or_range: "fixed"  # Options: "fixed" or "range"
+
+    fixed_input_tokens: 5500
+    fixed_output_tokens: 350
+
     min_input_tokens: 1000
     max_input_tokens: 10000
     min_output_tokens: 200
@@ -95,15 +101,48 @@ docker run -it --rm \
 
 ### 三種預設配置
 
-| 預設 | 輸入 Token 範圍 | 輸出 Token 範圍 | 使用場景 |
-|------|----------------|----------------|----------|
-| **rag** | 1,000 - 10,000 | 200 - 500 | RAG 檢索增強生成：長文本輸入，短回答輸出 |
-| **generate** | 100 - 200 | 1,000 - 10,000 | 文本生成：短提示，長輸出（如文章生成） |
-| **normal** | 100 - 200 | 200 - 500 | 一般對話：平衡的輸入輸出長度 |
+| 預設 | 輸入 Token 範圍 | 輸出 Token 範圍 | 固定輸入 | 固定輸出 | 使用場景 |
+|------|----------------|----------------|----------|----------|----------|
+| **rag** | 1,000 - 10,000 | 200 - 500 | 5,500 | 350 | RAG 檢索增強生成：長文本輸入，短回答輸出 |
+| **generate** | 100 - 200 | 1,000 - 10,000 | 150 | 5,500 | 文本生成：短提示，長輸出（如文章生成） |
+| **normal** | 100 - 200 | 200 - 500 | 150 | 350 | 一般對話：平衡的輸入輸出長度 |
 
-### 背後的實作原理
+### Token 模式：固定（fixed）與範圍（range）
 
-預設配置使用 **高斯分布採樣** 來產生變化的 token 長度：
+每個預設可透過 `use_fix_or_range` 設定 token 模式：
+
+- **`"fixed"`（預設）**：使用 `fixed_input_tokens` 和 `fixed_output_tokens` 的固定值，所有請求使用完全相同的 token 數量。適合精確的硬體效能對比測試。
+- **`"range"`**：從 `min/max` 範圍中使用高斯分布採樣，模擬真實使用場景的 token 分布變異。
+
+```yaml
+presets:
+  rag:
+    use_fix_or_range: "fixed"    # 使用固定值
+    fixed_input_tokens: 5500     # 固定輸入 token 數
+    fixed_output_tokens: 350     # 固定輸出 token 數
+    min_input_tokens: 1000       # range 模式使用
+    max_input_tokens: 10000
+    min_output_tokens: 200
+    max_output_tokens: 500
+```
+
+> **固定值計算方式：** `fixed_input_tokens` 和 `fixed_output_tokens` 取範圍的中間值（`(min + max) / 2`）。
+
+### 固定模式下的 `min_tokens` 保證
+
+當 `use_fix_or_range` 設為 `"fixed"` 時，`run.sh` 會自動將 `min_tokens` 設為 `fixed_output_tokens` 的值，透過 `--additional-sampling-params` 傳遞給 vLLM API：
+
+```json
+{"min_tokens": 350}
+```
+
+這確保 vLLM 生成的 token 數量**不少於**指定值，搭配 `max_tokens`（同為固定值）實現精確的固定輸出長度。
+
+> **注意：** `min_tokens` 是 vLLM 的擴展參數，非標準 OpenAI API 參數。僅在連接 vLLM 服務時有效。
+
+### Range 模式的實作原理
+
+當 `use_fix_or_range` 設為 `"range"` 時，使用 **高斯分布採樣** 來產生變化的 token 長度：
 
 ```
 min_tokens → max_tokens 轉換為 mean ± stddev
@@ -176,7 +215,10 @@ stddev = (10000 - 1000) / 4 = 2250
 
 ```bash
 # run.sh 中的預設設定
-TOKEN_ARGS="--use-case $USE_CASE --disable-prefix-caching --unique-prompts"
+TOKEN_ARGS="--mean-input-tokens $FIXED_INPUT_TOKENS --stddev-input-tokens 0 --mean-output-tokens $FIXED_OUTPUT_TOKENS --stddev-output-tokens 0 --disable-prefix-caching --unique-prompts"
+
+# 固定模式時自動設定 min_tokens
+SAMPLING_PARAMS='{"min_tokens": $FIXED_OUTPUT_TOKENS}'
 ```
 
 ### 為什麼需要防止 KV Cache？
@@ -263,12 +305,13 @@ while remaining_prompt_tokens > 0:
 
 ```bash
 # run.sh 預設行為
-TOKEN_ARGS="--use-case $USE_CASE --disable-prefix-caching --unique-prompts"
+TOKEN_ARGS="--mean-input-tokens $FIXED_INPUT_TOKENS --stddev-input-tokens 0 --mean-output-tokens $FIXED_OUTPUT_TOKENS --stddev-output-tokens 0 --disable-prefix-caching --unique-prompts"
 ```
 
 這意味著：
 - ✅ 每個請求都有唯一的前綴 `[REQ-xxx]`，防止 VLLM 前綴快取
 - ✅ 每個請求的內容都完全不同，無固定隨機種子
+- ✅ 固定模式下 `min_tokens` 保證精確的輸出 token 數量
 - ✅ 測試結果反映真實的硬體計算能力
 - ✅ 無需額外配置，開箱即用
 
@@ -343,17 +386,23 @@ result_outputs/
 presets:
   # 現有預設...
 
-  # 自訂預設：超長文本摘要
+  # 自訂預設：超長文本摘要（固定模式）
   summarize:
     description: "長文本摘要 - 超長輸入，中等輸出"
+    use_fix_or_range: "fixed"
+    fixed_input_tokens: 12500
+    fixed_output_tokens: 750
     min_input_tokens: 5000
     max_input_tokens: 20000
     min_output_tokens: 500
     max_output_tokens: 1000
 
-  # 自訂預設：快速問答
+  # 自訂預設：快速問答（範圍模式）
   quick_qa:
     description: "快速問答 - 極短輸入輸出"
+    use_fix_or_range: "range"
+    fixed_input_tokens: 75
+    fixed_output_tokens: 75
     min_input_tokens: 50
     max_input_tokens: 100
     min_output_tokens: 50
@@ -361,6 +410,8 @@ presets:
 ```
 
 新增的預設會自動被 `run.sh` 執行。
+
+> **注意：** 即使使用 `"range"` 模式，建議同時填寫 `fixed_input_tokens` 和 `fixed_output_tokens`，方便日後切換模式。
 
 ### 調整並發請求數
 
@@ -407,6 +458,15 @@ llmperf/
 - 如果不啟用 `--unique-prompts`，程式使用固定種子 `random.seed(11111)`
 - 這確保相同配置下產生相同的提示詞序列
 - 啟用 `--unique-prompts` 時，每次執行都是唯一的
+
+### Q: `min_tokens` 是什麼？為什麼需要它？
+
+**A:**
+- `min_tokens` 是 vLLM 的擴展參數，用於保證模型生成**不少於**指定數量的 token
+- 在固定模式下，`run.sh` 自動將 `min_tokens` 設為 `fixed_output_tokens` 的值
+- 搭配 `max_tokens`（也設為相同值），確保每個請求生成**精確**的 token 數量
+- 此參數僅在 vLLM 服務端有效，標準 OpenAI API 不支持此參數
+- 在 range 模式下不會設定 `min_tokens`
 
 ### Q: 測試時應該用多少並發請求？
 
