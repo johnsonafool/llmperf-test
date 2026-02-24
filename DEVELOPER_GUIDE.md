@@ -126,8 +126,6 @@ presets:
     max_output_tokens: 500
 ```
 
-> **固定值計算方式：** `fixed_input_tokens` 和 `fixed_output_tokens` 取範圍的中間值（`(min + max) / 2`）。
-
 ### 固定模式下的 `min_tokens` 保證
 
 當 `use_fix_or_range` 設為 `"fixed"` 時，`run.sh` 會自動將 `min_tokens` 設為 `fixed_output_tokens` 的值，透過 `--additional-sampling-params` 傳遞給 vLLM API：
